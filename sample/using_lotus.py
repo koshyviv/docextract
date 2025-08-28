@@ -46,8 +46,7 @@ Run the following cells to install required dependencies.
 Let's set up LOTUS and load in the papers dataset we will use.
 """
 
-# Commented out IPython magic to ensure Python compatibility.
-# %set_env OPENAI_API_KEY=
+
 
 """### Configure Models in LOTUS
 
