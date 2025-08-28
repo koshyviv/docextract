@@ -25,16 +25,53 @@ INDEX_DIR.mkdir(exist_ok=True)
 
 
 def _configure_lotus() -> None:
-    api_key = os.environ.get("OPENAI_API_KEY", "").strip()
-    if not api_key:
-        raise RuntimeError(
-            "OPENAI_API_KEY environment variable is required to run this app."
+    provider = os.environ.get("LLM_PROVIDER", "openai").strip().lower()
+
+    # Allow overriding model names via environment variables
+    llm_model = os.environ.get("LLM_MODEL", "gpt-4.1-nano").strip()
+    embedding_model = os.environ.get("EMBEDDING_MODEL", "text-embedding-3-small").strip()
+
+    if provider == "ollama":
+        # Use Ollama's OpenAI-compatible endpoint. Assume local default port.
+        # If user provided a custom base, respect it.
+        openai_base = os.environ.get("OPENAI_API_BASE", "").strip()
+        if not openai_base:
+            os.environ["OPENAI_API_BASE"] = os.environ.get(
+                "OLLAMA_OPENAI_BASE", "http://localhost:11434/v1"
+            )
+
+        # Ollama doesn't require a real API key; set a placeholder if absent
+        api_key = os.environ.get("OPENAI_API_KEY", "").strip() or "ollama"
+
+        # Reasonable defaults for local models if not overridden
+        if "LLM_MODEL" not in os.environ:
+            llm_model = "llama3.2"
+        if "EMBEDDING_MODEL" not in os.environ:
+            embedding_model = "nomic-embed-text"
+
+        lotus.settings.configure(
+            lm=LM(api_key=api_key, model=llm_model),
+            rm=LiteLLMRM(model=embedding_model),
+            vs=FaissVS(),
         )
-    lotus.settings.configure(
-        lm=LM(api_key=api_key, model="gpt-4.1-nano"),
-        rm=LiteLLMRM(model="text-embedding-3-small"),
-        vs=FaissVS(),
-    )
+    else:
+        # Default: OpenAI
+        api_key = os.environ.get("OPENAI_API_KEY", "").strip()
+        if not api_key:
+            raise RuntimeError(
+                "OPENAI_API_KEY environment variable is required to run this app (unless LLM_PROVIDER=ollama)."
+            )
+        # Ensure we don't accidentally point to a non-OpenAI base when using OpenAI
+        if os.environ.get("LLM_PROVIDER", "openai").strip().lower() == "openai":
+            # If someone previously set OPENAI_API_BASE for Ollama, ignore it here
+            if os.environ.get("OPENAI_API_BASE", "").strip().startswith("http://localhost:11434"):
+                os.environ.pop("OPENAI_API_BASE", None)
+
+        lotus.settings.configure(
+            lm=LM(api_key=api_key, model=llm_model),
+            rm=LiteLLMRM(model=embedding_model),
+            vs=FaissVS(),
+        )
 
 
 _configure_lotus()
