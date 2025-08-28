@@ -1,0 +1,16 @@
+services:
+  app:
+    build: .
+    image: docextract:latest
+    environment:
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - PORT=7860
+      - GRADIO_SERVER_NAME=0.0.0.0
+      - DEBUG=false
+    ports:
+      - "7861:7860"
+    volumes:
+      - ./data:/app/data
+    restart: unless-stopped
+
+
