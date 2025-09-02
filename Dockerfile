@@ -23,8 +23,6 @@ COPY requirements.txt /app/requirements.txt
 RUN pip install --upgrade pip setuptools wheel && \
     pip install -r /app/requirements.txt --extra-index-url https://download.pytorch.org/whl/cpu
 
-RUN pip install llama-index python-pptx
-
 COPY . /app
 
 # Create data directory and set as volume for persistence

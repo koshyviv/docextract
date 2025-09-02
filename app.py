@@ -7,9 +7,9 @@ import gradio as gr
 import pandas as pd
 
 import lotus
-from lotus.file_extractors import DirectoryReader
 from lotus.models import LM, LiteLLMRM
 from lotus.vector_store import FaissVS
+from markitdown import MarkItDown
 
 
 # -----------------------------
@@ -18,10 +18,20 @@ from lotus.vector_store import FaissVS
 ROOT_DIR = Path(__file__).parent
 DATA_DIR = ROOT_DIR / "data"
 INDEX_DIR = DATA_DIR / ".lotus_index"
-ALLOWED_SUFFIXES = {".pdf", ".doc", ".docx"}
+ALLOWED_SUFFIXES = {
+    ".pdf", ".doc", ".docx",
+    ".ppt", ".pptx",
+    ".xls", ".xlsx", ".csv",
+    ".txt", ".md", ".html", ".xml", ".json",
+    ".eml", ".msg", ".epub", ".zip",
+    ".jpg", ".jpeg", ".png", ".gif", ".bmp", ".tif", ".tiff",
+    ".mp3", ".wav", ".m4a", ".ogg",
+}
+CONVERTED_DIR = DATA_DIR / "converted_md"
 
 DATA_DIR.mkdir(exist_ok=True)
 INDEX_DIR.mkdir(exist_ok=True)
+CONVERTED_DIR.mkdir(exist_ok=True)
 
 
 def _configure_lotus() -> None:
@@ -130,6 +140,13 @@ def remove_file(file_name: str) -> str:
     if target.exists():
         try:
             target.unlink()
+            # Also remove converted Markdown counterpart if present
+            converted = CONVERTED_DIR / (Path(file_name).stem + ".md")
+            if converted.exists():
+                try:
+                    converted.unlink()
+                except Exception:
+                    pass
             return f"Removed {file_name}."
         except Exception as e:
             return f"Failed to remove {file_name}: {e}"
@@ -137,20 +154,57 @@ def remove_file(file_name: str) -> str:
 
 
 # -----------------------------
-# Ingestion and QA
+# Conversion, Ingestion and QA
 # -----------------------------
-def build_pages_dataframe() -> pd.DataFrame:
-    reader = DirectoryReader()
+def convert_all_to_markdown() -> Tuple[int, int]:
+    """Convert all supported files in data/ to Markdown under data/converted_md/.
+
+    Returns a tuple of (num_converted, num_failed).
+    """
+    md_converter = MarkItDown(enable_plugins=False)
+    converted = 0
+    failed = 0
     for f in DATA_DIR.iterdir():
-        if f.is_file() and f.suffix.lower() in ALLOWED_SUFFIXES:
-            reader = reader.add(f)
+        if not f.is_file():
+            continue
+        if f.parent == CONVERTED_DIR:
+            continue
+        if f.suffix.lower() not in ALLOWED_SUFFIXES:
+            continue
+        out_path = CONVERTED_DIR / (f.stem + ".md")
+        try:
+            result = md_converter.convert(str(f))
+            text = getattr(result, "text_content", None) or ""
+            out_path.write_text(text, encoding="utf-8")
+            converted += 1
+        except Exception:
+            failed += 1
+            continue
+    return converted, failed
+
+
+def build_pages_dataframe() -> pd.DataFrame:
+    # Ensure all current docs are converted to Markdown first
     try:
-        # per_page=True yields page-level rows with a 'content' column
-        df = reader.to_df(per_page=True)
+        convert_all_to_markdown()
     except Exception:
-        # If no files or unreadable files, return empty DF with expected columns
-        df = pd.DataFrame(columns=["content", "path", "page"])
-    return df
+        pass
+
+    rows = []
+    for f in sorted(CONVERTED_DIR.glob("*.md"), key=lambda p: p.name.lower()):
+        try:
+            text = f.read_text(encoding="utf-8", errors="ignore")
+        except Exception:
+            text = ""
+        rows.append({
+            "content": text,
+            "path": str(f),
+            "page": "1",
+        })
+
+    if not rows:
+        return pd.DataFrame(columns=["content", "path", "page"])
+    return pd.DataFrame(rows, columns=["content", "path", "page"])
 
 
 def _extract_citation_fields(df_row: pd.Series) -> Tuple[str, str]:
@@ -284,7 +338,8 @@ with gr.Blocks(title="Document Q&A (LOTUS)") as demo:
             )
             with gr.Row():
                 uploader = gr.Files(
-                    label="Upload PDF/DOC/DOCX", file_count="multiple", type="filepath"
+                    label="Upload documents (PDF, Office, images, audio, etc.)",
+                    file_count="multiple", type="filepath"
                 )
                 upload_btn = gr.Button("Upload")
             with gr.Row():
